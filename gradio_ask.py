@@ -66,6 +66,9 @@ def speaker_to_text(wav_file_path, tgt_lang='cmn'):
         response_text = response['content']
         response_text_list = response_text.split('。') if len(response) > 64 else [response_text]
         for tem_1 in response_text_list:
+            tem_1 = tem_1.strip()
+            if len(tem_1.replace(' ', '').replace('，', '').replace('。', '')) < 1:
+                continue
             headers = {'content-type': 'application/json', 'Authorization': 'Bearer ' + 'kk'}
             r_1 = requests.post(url_1, json={'text': tem_1}, headers=headers).json()
             audio_concat.extend(list(map(int, r_1['audio_concat'].split(','))))
