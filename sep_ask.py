@@ -57,7 +57,7 @@ def run_ask_gpt(res_str):
         ask_done = False
         while not ask_done and ask_count < 3:
             try:
-                response = ask_gpt(res_str)
+                response = ask_gpt(f'{res_str}。回答禁止使用markdown、json等格式，使用人类说话的方式返回，不要过长。')
                 ask_done = True
             except Exception as e_:
                 ask_count += 1
