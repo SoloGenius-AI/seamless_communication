@@ -27,6 +27,73 @@ m4t_text_generation_opts = SequenceGeneratorOptions(
 )
 
 
+def run_speech_recon(wav_file_path, tgt_lang='cmn'):
+    try:
+        sample_rate, data = wav.read(wav_file_path)
+        new_rate = 16000
+        resampled_data = resample(data, int(len(data) * new_rate / sample_rate))
+        resampled_data = resampled_data.astype('int16')
+        wav.write(wav_file_path, new_rate, resampled_data)
+        print(f'转换为16k: {wav_file_path}')
+        text_output, _ = translator.predict(
+            input=wav_file_path,
+            task_str="S2TT",
+            # cmn, jpn
+            tgt_lang=tgt_lang,
+            text_generation_opts=m4t_text_generation_opts,
+            unit_generation_opts=None
+        )
+        res_str_list = list(map(lambda x_: f'{x_.__str__()}', text_output))
+        res_str = ''.join(res_str_list)
+        print(res_str)
+        return res_str
+    except Exception as e_:
+        print(f'语音识别错误: {e_}')
+
+
+def run_ask_gpt(res_str):
+    try:
+        ask_count = 0
+        ask_done = False
+        while not ask_done and ask_count < 3:
+            try:
+                response = ask_gpt(res_str)
+                ask_done = True
+            except Exception as e_:
+                ask_count += 1
+                print(f'ask try {ask_count}: {e_}')
+        if not ask_done:
+            raise Exception(f'ask fail..')
+
+        print(f'gpt_res: {response=}')
+        response_text = response['content']
+        return response_text
+    except Exception as e_:
+        print(f'询问错误: {e_}')
+
+
+def run_gen_audio(response_text):
+    try:
+        audio_concat = []
+        sampling_rate = 44100
+        response_text_list = response_text.split('。') if len(response_text) > 64 else [response_text]
+        for tem_1 in response_text_list:
+            tem_1 = tem_1.strip()
+            if len(tem_1.replace(' ', '').replace('，', '').replace('。', '')) < 1:
+                continue
+            headers = {'content-type': 'application/json', 'Authorization': 'Bearer ' + 'kk'}
+            r_1 = requests.post(url_1, json={'text': tem_1}, headers=headers).json()
+            audio_concat.extend(list(map(int, r_1['audio_concat'].split(','))))
+            sampling_rate = r_1['sampling_rate']
+        data = gr.processing_utils.convert_to_16_bit_wav(1.0 * np.array(audio_concat))
+        new_rate = 16000
+        resampled_data = resample(data, int(len(data) * new_rate / int(sampling_rate)))
+        resampled_data = resampled_data.astype('int16')
+        return (new_rate, resampled_data)
+    except Exception as e_:
+        print(f'语音合成错误: {e_}')
+
+
 def speaker_to_text(wav_file_path, tgt_lang='cmn'):
     try:
         sample_rate, data = wav.read(wav_file_path)
@@ -64,7 +131,7 @@ def speaker_to_text(wav_file_path, tgt_lang='cmn'):
         sampling_rate = 44100
 
         response_text = response['content']
-        response_text_list = response_text.split('。') if len(response_text) > 64 else [response_text]
+        response_text_list = response_text.split('。') if len(response) > 64 else [response_text]
         for tem_1 in response_text_list:
             tem_1 = tem_1.strip()
             if len(tem_1.replace(' ', '').replace('，', '').replace('。', '')) < 1:
@@ -125,11 +192,24 @@ def rec_audio(audio):
         print(f'gen_audio_err: {e_}')
 
 
-demo = gr.Interface(
-    rec_audio,
-    inputs=gr.Audio(sources=["microphone", "upload"], type='filepath', show_label=True, editable=True),
-    outputs=[gr.Text(label='ask'), gr.Text(label='response'), gr.Audio(type='numpy', autoplay=True)],
-)
+# demo = gr.Interface(
+#     rec_audio,
+#     inputs=gr.Audio(sources=["microphone", "upload"], type='filepath', show_label=True, editable=True),
+#     outputs=[gr.Text(label='ask'), gr.Text(label='response'), gr.Audio(type='numpy', autoplay=True)],
+# )
+
+demo = gr.Blocks()
+with demo:
+    audio_inputs = gr.Audio(sources=["microphone", "upload"], type='filepath', show_label=True, editable=True,
+                            label='input')
+    speech_text = gr.Text(label='ask')
+    response_text = gr.Text(label='response')
+    audio_output = gr.Audio(type='numpy', autoplay=True, label='response', interactive=False)
+    submit_btn = gr.Button("录制完成，开始问答")
+    submit_btn.click(run_speech_recon, audio_inputs, speech_text)
+    speech_text.change(run_ask_gpt, speech_text, response_text)
+    response_text.change(run_gen_audio, response_text, audio_output)
+
 
 if __name__ == "__main__":
     demo.launch(server_port=57895)
